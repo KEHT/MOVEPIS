@@ -1,0 +1,143 @@
+;~ 06/27/2014 - sjohnson@gpo.gov - Alpha version (0.90) MOVEPIS to process CMD files
+
+#include <file.au3>
+#include <GUIConstantsEx.au3>
+#include <FileConstants.au3>
+#include <MsgBoxConstants.au3>
+#include <EditConstants.au3>
+#include <WindowsConstants.au3>
+#include <ButtonConstants.au3>
+
+Global $tipmsg = "PLEASE WAIT..."
+
+;~ Global $cInputFolderDefault = "U:\Constitutional Heads\L Files"
+Global $cInputFolderDefault = "\\alpha3\E\FR\OC"
+Global $cOutputFolderDefault = "\\alpha3\E\FR\FM"
+;~ Global $cOutputFolderDefault = "E:\RECSCAN\TofA"
+Global $cInputFolder, $cOutputFolder
+
+; create GUI and tabs
+
+GUICreate("MOVEPIS v0.9", 350, 300)
+;~ $tab = GUICtrlCreateTab(5, 5, 340, 290)
+
+GUICtrlCreateLabel("CMD File:", 10, 40, 300)
+$inputFile = GUICtrlCreateInput("", 10, 65, 260, 20, $ES_READONLY)
+;~ GUICtrlSetState(-1, $GUI_DROPACCEPTED)
+$pickCMDbutton = GUICtrlCreateButton("Pick CMD", 275, 62, 65)
+GUICtrlCreateLabel("Output Folder:", 15, 100, 300)
+$outputFolder = GUICtrlCreateInput("", 15, 125, 320, 20)
+$cOutputFolder = GetInputOutput("output", $cOutputFolderDefault)
+GUICtrlSetData($outputFolder, $cOutputFolder)
+$Default_Button = GUICtrlCreateButton("Revert to Default Folders", 15, 145, 150)
+$Apply_Button = GUICtrlCreateButton("Set Default Folder", 185, 145, 150, Default, $BS_CENTER)
+
+$Process_Button = GUICtrlCreateButton("PROCESS FILE", 100, 200, 150, 45, $BS_CENTER + $BS_DEFPUSHBUTTON)
+GUICtrlSetState($Process_Button, $GUI_DISABLE)
+GUICtrlCreateTabItem("") ; end tabitem definition
+
+GUISetState()
+
+While 1
+	$msg = GUIGetMsg()
+	Switch $msg
+		Case $GUI_EVENT_CLOSE
+			Exit
+		Case $Default_Button
+			$cInputFolder = $cInputFolderDefault
+			$cOutputFolder = $cOutputFolderDefault
+			GUICtrlSetData($outputFolder, $cOutputFolder)
+		Case $Apply_Button
+			$cInputFolder = GetDir(GUICtrlRead($inputFile))
+			If Not RegWrite("HKEY_CURRENT_USER\Software\USGPO\PED\MOVEPIS", "input", "REG_SZ", $cInputFolder) Then
+				MsgBox(16, "Input folder could not be saved", "The input folder could not be saved, Error #" & @error)
+			EndIf
+			$cOutputFolder = GUICtrlRead($outputFolder)
+			$cOutputFolder = StringRegExpReplace($cOutputFolder, '\\* *$', '') ; strip trailing \ and spaces
+			If Not RegWrite("HKEY_CURRENT_USER\Software\USGPO\PED\MOVEPIS", "output", "REG_SZ", $cOutputFolder) Then
+				MsgBox(16, "Output folder could not be saved", "The output folder could not be saved, Error #" & @error)
+			EndIf
+			GUICtrlSetData($outputFolder, $cOutputFolder)
+		Case $pickCMDbutton
+			GUICtrlSetData($inputFile, ChooseCMDfile())
+		Case $Process_Button
+			$cInputFileText = FileRead(GUICtrlRead($inputFile))
+			$aFiles = StringRegExp($cInputFileText, '.*\.[0-9]{3}', $STR_REGEXPARRAYGLOBALMATCH)
+			If @error == 1 Then Exit MsgBox($MB_ICONERROR, "BAD Command File", "Must specify filename and numeric extension")
+			ProcCMDfiles($aFiles)
+	EndSwitch
+
+WEnd
+
+
+Func ChooseCMDfile()
+    ; Create a constant variable in Local scope of the message to display in FileOpenDialog.
+    Local Const $sMessage = "Select a CMD file."
+
+    ; Display an open dialog to select a file.
+    Local $sFileOpenDialog = FileOpenDialog($sMessage, GetInputOutput("input", $cInputFolderDefault) & "\", "CMD (*.CMD)", $FD_FILEMUSTEXIST)
+    If @error Then
+        ; Display the error message.
+        MsgBox($MB_SYSTEMMODAL, "", "No file was selected.")
+
+        ; Change the working directory (@WorkingDir) back to the input directory as FileOpenDialog sets it to the last accessed folder.
+        FileChangeDir(GetInputOutput("input", $cInputFolderDefault))
+    Else
+        ; Change the working directory (@WorkingDir) back to the input directory as FileOpenDialog sets it to the last accessed folder.
+        FileChangeDir(GetInputOutput("input", $cInputFolderDefault))
+
+        ; Replace instances of "|" with @CRLF in the string returned by FileOpenDialog.
+        $sFileOpenDialog = StringReplace($sFileOpenDialog, "|", @CRLF)
+
+        ; Display the selected file.
+;~         MsgBox($MB_SYSTEMMODAL, "", "You chose the following file:" & @CRLF & $sFileOpenDialog)
+		GUICtrlSetState($Process_Button, $GUI_ENABLE)
+		$cInputFolder = GetDir($sFileOpenDialog)
+
+		Return $sFileOpenDialog
+    EndIf
+EndFunc
+
+; function to get input or output values from registry if they exist
+Func GetInputOutput($IorO, $DefaultFolder)
+
+	Dim $inputreg, $outputreg
+
+	If $IorO = "input" Then
+		$inputreg = RegRead("HKEY_CURRENT_USER\Software\USGPO\PED\MOVEPIS", "input")
+		If $inputreg = "" Then
+			RegWrite("HKEY_CURRENT_USER\Software\USGPO\PED\MOVEPIS", "input", "REG_SZ", $DefaultFolder)
+			Return $DefaultFolder
+		Else
+			Return $inputreg
+		EndIf
+	Else
+		$outputreg = RegRead("HKEY_CURRENT_USER\Software\USGPO\PED\MOVEPIS", "output")
+		If $outputreg = "" Then
+			RegWrite("HKEY_CURRENT_USER\Software\USGPO\PED\MOVEPIS", "output", "REG_SZ", $DefaultFolder)
+			Return $DefaultFolder
+		Else
+			Return $outputreg
+		EndIf
+	EndIf
+
+EndFunc   ;==>GetInputOutput
+
+; function to get directory from filepath
+Func GetDir($sFilePath)
+    If Not IsString($sFilePath) Then
+        Return SetError(1, 0, -1)
+    EndIf
+
+    Local $FileDir = StringRegExpReplace($sFilePath, "\\[^\\]*$", "")
+
+    Return $FileDir
+EndFunc
+
+;~ function to process files in CMD
+Func ProcCMDfiles($aFiles)
+	For $i = 0 To UBound($aFiles) - 1
+		MsgBox($MB_SYSTEMMODAL, "RegExp Test with Option 3 - " & $i, $aFiles[$i])
+	Next
+
+EndFunc
